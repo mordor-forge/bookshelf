@@ -1,0 +1,1 @@
+ALTER TABLE progress ADD COLUMN currently_reading INTEGER NOT NULL DEFAULT 0;

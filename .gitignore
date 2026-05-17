@@ -1,0 +1,14 @@
+/bin/
+*.db
+*.db-shm
+*.db-wal
+/web/node_modules/
+.env
+/.dev/
+.claude/
+.idea/
+.vscode/
+.DS_Store
+*.tsbuildinfo
+/web/vite.config.js
+/web/vite.config.d.ts
