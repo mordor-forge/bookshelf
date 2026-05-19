@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import {
   ChevronDown,
   ChevronRight,
@@ -17,6 +17,7 @@ import {
   DropdownMenuItem,
 } from 'reka-ui'
 import type { TreeNode, Selection } from '../composables/useLibrary'
+import { useSettings } from '../composables/useSettings'
 import { Button } from '@/components/ui/button'
 
 const props = defineProps<{
@@ -33,40 +34,11 @@ const emit = defineEmits<{
   addChild: [node: TreeNode | null]
 }>()
 
-const EXPAND_KEY = 'bookshelf:tree-expanded'
-
-const expanded = ref<Set<number>>(new Set())
-
-function loadExpanded(): void {
-  try {
-    const raw = localStorage.getItem(EXPAND_KEY)
-    if (raw) {
-      const arr = JSON.parse(raw) as number[]
-      if (Array.isArray(arr)) expanded.value = new Set(arr)
-    }
-  } catch {
-    // ignore
-  }
-}
-loadExpanded()
-
-watch(
-  expanded,
-  (v) => {
-    try {
-      localStorage.setItem(EXPAND_KEY, JSON.stringify([...v]))
-    } catch {
-      // ignore
-    }
-  },
-  { deep: true },
-)
+const settings = useSettings()
 
 function toggle(id: number): void {
-  const next = new Set(expanded.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  expanded.value = next
+  if (settings.treeExpanded.has(id)) settings.treeExpanded.delete(id)
+  else settings.treeExpanded.add(id)
 }
 
 function isSelected(sel: Selection): boolean {
@@ -93,7 +65,7 @@ const flat = computed<FlatRow[]>(() => {
   function walk(list: TreeNode[], depth: number): void {
     for (const n of list) {
       out.push({ node: n, depth })
-      if (expanded.value.has(n.id)) walk(n.children, depth + 1)
+      if (settings.treeExpanded.has(n.id)) walk(n.children, depth + 1)
     }
   }
   walk(props.nodes, 0)
@@ -137,10 +109,10 @@ const flat = computed<FlatRow[]>(() => {
         v-if="row.node.children.length > 0"
         type="button"
         class="h-6 w-6 inline-flex items-center justify-center rounded hover:bg-background/60 shrink-0"
-        :aria-label="expanded.has(row.node.id) ? 'Collapse' : 'Expand'"
+        :aria-label="settings.treeExpanded.has(row.node.id) ? 'Collapse' : 'Expand'"
         @click="toggle(row.node.id)"
       >
-        <ChevronDown v-if="expanded.has(row.node.id)" class="size-3.5" />
+        <ChevronDown v-if="settings.treeExpanded.has(row.node.id)" class="size-3.5" />
         <ChevronRight v-else class="size-3.5" />
       </button>
       <span v-else class="w-6 shrink-0" />

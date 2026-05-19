@@ -132,15 +132,12 @@ func (s *Scanner) scan(ctx context.Context, libraryDir string) Result {
 				return nil
 			}
 			relSlash := filepath.ToSlash(rel)
-			var parentID *int64
-			if i := strings.LastIndexByte(relSlash, '/'); i > 0 {
-				parentSlash := relSlash[:i]
-				if pid, ok := collIDs[parentSlash]; ok {
-					id := pid
-					parentID = &id
-				}
+			// only create collections for top-level directories; nested dirs
+			// are still walked for PDFs but don't become their own collections.
+			if strings.IndexByte(relSlash, '/') >= 0 {
+				return nil
 			}
-			c, err := s.store.UpsertScanCollection(ctx, relSlash, d.Name(), parentID)
+			c, err := s.store.UpsertScanCollection(ctx, relSlash, d.Name(), nil)
 			if err != nil {
 				res.Errors = append(res.Errors, fmt.Sprintf("collection %s: %v", relSlash, err))
 				return nil
@@ -185,10 +182,10 @@ func (s *Scanner) scan(ctx context.Context, libraryDir string) Result {
 		} else {
 			res.Updated++
 		}
-		// link the book to its immediate parent directory's collection, if any.
-		if i := strings.LastIndexByte(relSlash, '/'); i > 0 {
-			parentSlash := relSlash[:i]
-			if cid, ok := collIDs[parentSlash]; ok {
+		// link the book to its top-level directory's collection, if any.
+		if i := strings.IndexByte(relSlash, '/'); i > 0 {
+			topSlash := relSlash[:i]
+			if cid, ok := collIDs[topSlash]; ok {
 				if err := s.store.AddBookToCollection(ctx, relSlash, cid); err != nil {
 					res.Errors = append(res.Errors, fmt.Sprintf("link %s: %v", relSlash, err))
 				}

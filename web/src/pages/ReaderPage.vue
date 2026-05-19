@@ -20,12 +20,14 @@ import {
   PanelRightOpen,
   RectangleVertical,
   StickyNote,
+  SunMoon,
   X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-vue-next'
 import { bookFileUrl } from '../api'
 import { useBook } from '../composables/useBook'
+import { useSettings } from '../composables/useSettings'
 import BookmarkPanel from '../components/BookmarkPanel.vue'
 import NoteDialog from '../components/NoteDialog.vue'
 import PdfOutline, { type OutlineNode } from '../components/PdfOutline.vue'
@@ -224,23 +226,15 @@ const pageInput = ref(1)
 const outline = ref<OutlineNode[]>([])
 const outlineLoaded = ref(false)
 
-const TOC_OPEN_KEY = 'bookshelf:reader-toc-open'
-const BOOKMARKS_OPEN_KEY = 'bookshelf:reader-bookmarks-open'
-const ZOOM_KEY = 'bookshelf:zoom'
+const settings = useSettings()
 
-const tocOpen = ref(false)
-const bookmarksOpen = ref(false)
-try {
-  tocOpen.value = localStorage.getItem(TOC_OPEN_KEY) === 'true'
-  bookmarksOpen.value = localStorage.getItem(BOOKMARKS_OPEN_KEY) === 'true'
-} catch {
-  // ignore
-}
-watch(tocOpen, (v) => {
-  try { localStorage.setItem(TOC_OPEN_KEY, String(v)) } catch { /* ignore */ }
+const tocOpen = computed({
+  get: () => settings.readerTocOpen,
+  set: (v: boolean) => { settings.readerTocOpen = v },
 })
-watch(bookmarksOpen, (v) => {
-  try { localStorage.setItem(BOOKMARKS_OPEN_KEY, String(v)) } catch { /* ignore */ }
+const bookmarksOpen = computed({
+  get: () => settings.readerBookmarksOpen,
+  set: (v: boolean) => { settings.readerBookmarksOpen = v },
 })
 
 const ZOOM_MIN = 0.5
@@ -250,13 +244,10 @@ function clampZoom(z: number): number {
   if (!Number.isFinite(z)) return 1
   return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(z * 100) / 100))
 }
-const zoom = ref(1)
-try {
-  const raw = localStorage.getItem(ZOOM_KEY)
-  if (raw !== null) zoom.value = clampZoom(Number.parseFloat(raw))
-} catch {
-  // ignore
-}
+const zoom = computed({
+  get: () => settings.readerZoom,
+  set: (v: number) => { settings.readerZoom = clampZoom(v) },
+})
 const zoomPercent = computed<number>({
   get: () => Math.round(zoom.value * 100),
   set: (v) => {
@@ -266,13 +257,10 @@ const zoomPercent = computed<number>({
   },
 })
 
-const TWO_PAGE_KEY = 'bookshelf:two-page'
-const twoPageStored = ref<boolean>(false)
-try {
-  twoPageStored.value = localStorage.getItem(TWO_PAGE_KEY) === 'true'
-} catch {
-  // ignore
-}
+const twoPageStored = computed({
+  get: () => settings.readerTwoPage,
+  set: (v: boolean) => { settings.readerTwoPage = v },
+})
 
 // viewport-aware: only enable two-page above md breakpoint (768px).
 const wideEnough = ref(window.innerWidth >= 768)
@@ -285,11 +273,6 @@ const twoPage = computed(() => twoPageStored.value && wideEnough.value)
 
 function toggleTwoPage(): void {
   twoPageStored.value = !twoPageStored.value
-  try {
-    localStorage.setItem(TWO_PAGE_KEY, String(twoPageStored.value))
-  } catch {
-    // ignore
-  }
 }
 
 interface PageMeta {
@@ -677,6 +660,51 @@ function zoomReset(): void {
   zoom.value = 1
 }
 
+const invertPdf = computed(() => settings.readerPdfInvert)
+function toggleInvertPdf(): void {
+  settings.readerPdfInvert = !settings.readerPdfInvert
+}
+
+// pinch-to-zoom: CSS zoom on the scroll container so only the document
+// scales; the header (outside the container) stays fixed. no per-page
+// re-render during the gesture — we commit to the pdf zoom ref on finger-up.
+const pinchPointers = new Map<number, { x: number; y: number }>()
+let pinchStartDist = 0
+let pinchStartZoom = 0
+const pinchCssZoom = ref(1)
+
+function getPinchDist(): number {
+  const [a, b] = [...pinchPointers.values()]
+  return Math.hypot(b.x - a.x, b.y - a.y)
+}
+
+function onScrollPointerDown(e: PointerEvent): void {
+  pinchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+  if (pinchPointers.size === 2) {
+    pinchStartDist = getPinchDist()
+    pinchStartZoom = zoom.value
+  }
+}
+
+function onScrollPointerMove(e: PointerEvent): void {
+  bumpPaginator()
+  if (!pinchPointers.has(e.pointerId)) return
+  pinchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+  if (pinchPointers.size === 2 && pinchStartDist > 0) {
+    pinchCssZoom.value = Math.max(0.25, Math.min(8, getPinchDist() / pinchStartDist))
+  }
+}
+
+function onScrollPointerUp(e: PointerEvent): void {
+  pinchPointers.delete(e.pointerId)
+  if (pinchPointers.size < 2 && pinchCssZoom.value !== 1) {
+    zoom.value = clampZoom(pinchStartZoom * pinchCssZoom.value)
+    pinchCssZoom.value = 1
+    pinchStartDist = 0
+    pinchStartZoom = 0
+  }
+}
+
 const isReading = computed(() => status.value === 'currently_reading')
 async function toggleReading(): Promise<void> {
   try {
@@ -700,7 +728,6 @@ watch(currentPage, (v) => {
 })
 
 watch(zoom, (z) => {
-  try { localStorage.setItem(ZOOM_KEY, String(z)) } catch { /* ignore */ }
   // replace the array to force a clean reactive update of every wrapper's size.
   pages.value = pages.value.map((m) => ({
     ...m,
@@ -860,6 +887,17 @@ onBeforeUnmount(() => {
       </Button>
 
       <Button
+        :variant="invertPdf ? 'default' : 'outline'"
+        size="icon"
+        class="h-9 w-9"
+        :aria-label="invertPdf ? 'Disable document invert' : 'Invert document colors'"
+        :title="invertPdf ? 'Disable document invert' : 'Invert document colors'"
+        @click="toggleInvertPdf"
+      >
+        <SunMoon class="size-4" />
+      </Button>
+
+      <Button
         :variant="noteCursorActive ? 'default' : 'outline'"
         size="icon"
         class="h-9 w-9"
@@ -932,7 +970,12 @@ onBeforeUnmount(() => {
       ref="scrollEl"
       class="reader-scroll h-full flex-1 min-w-0 overflow-auto bg-background relative"
       :class="noteCursorActive ? 'reader-note-cursor' : ''"
-      @pointermove="bumpPaginator"
+      :style="pinchCssZoom !== 1 ? { zoom: pinchCssZoom } : {}"
+      style="touch-action: pan-x pan-y"
+      @pointerdown="onScrollPointerDown"
+      @pointermove="onScrollPointerMove"
+      @pointerup="onScrollPointerUp"
+      @pointercancel="onScrollPointerUp"
     >
       <p v-if="loading || pdfLoading" class="text-muted-foreground text-center py-6">
         Loading…
@@ -957,6 +1000,7 @@ onBeforeUnmount(() => {
           <div
             :ref="(el) => setPageWrapper(el as Element | null, i)"
             class="reader-page relative"
+            :class="{ 'pdf-invert': invertPdf }"
             :data-page-number="i + 1"
             :style="{ width: `${meta.width}px`, height: `${meta.height}px` }"
             @pointerdown="(e) => onPageWrapperPointerDown(e, i + 1)"
@@ -1164,5 +1208,15 @@ onBeforeUnmount(() => {
 .reader-note-cursor .reader-page,
 .reader-note-cursor .reader-page * {
   cursor: crosshair !important;
+}
+.reader-page.pdf-invert {
+  background: #1a1a1a;
+}
+.reader-page.pdf-invert .reader-canvas {
+  filter: invert(1) hue-rotate(180deg);
+}
+.reader-page.pdf-invert .page-label {
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.6);
 }
 </style>

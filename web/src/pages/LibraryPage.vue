@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Upload, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import {
@@ -13,6 +13,7 @@ import {
   uploadBook,
 } from '../api'
 import { useLibrary } from '../composables/useLibrary'
+import { useSettings } from '../composables/useSettings'
 import type { Status } from '../types'
 import BookCard from '../components/BookCard.vue'
 import CollectionTree from '../components/CollectionTree.vue'
@@ -49,28 +50,14 @@ const {
 const scanning = ref(false)
 let pollHandle: ReturnType<typeof setInterval> | null = null
 
-const PANEL_OPEN_KEY = 'bookshelf:library-panel-open'
-const treePanelOpen = ref<boolean>(true)
-try {
-  const raw = localStorage.getItem(PANEL_OPEN_KEY)
-  if (raw === null) {
-    treePanelOpen.value = window.innerWidth >= 1024
-  } else {
-    treePanelOpen.value = raw === 'true'
-  }
-} catch {
-  treePanelOpen.value = window.innerWidth >= 1024
-}
-watch(treePanelOpen, (v) => {
-  try {
-    localStorage.setItem(PANEL_OPEN_KEY, String(v))
-  } catch {
-    // ignore
-  }
+const settings = useSettings()
+const treePanelOpen = computed({
+  get: () => settings.libraryPanelOpen,
+  set: (v: boolean) => { settings.libraryPanelOpen = v },
 })
 
 function toggleTreePanel(): void {
-  treePanelOpen.value = !treePanelOpen.value
+  settings.libraryPanelOpen = !settings.libraryPanelOpen
 }
 const collectionDialogOpen = ref(false)
 const dialogMode = ref<'create' | 'rename'>('create')
