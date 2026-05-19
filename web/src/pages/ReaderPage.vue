@@ -887,9 +887,10 @@ onBeforeUnmount(() => {
       </Button>
 
       <Button
-        :variant="invertPdf ? 'default' : 'outline'"
+        variant="outline"
         size="icon"
         class="h-9 w-9"
+        :class="invertPdf ? 'bg-muted text-primary border-primary/40' : ''"
         :aria-label="invertPdf ? 'Disable document invert' : 'Invert document colors'"
         :title="invertPdf ? 'Disable document invert' : 'Invert document colors'"
         @click="toggleInvertPdf"
