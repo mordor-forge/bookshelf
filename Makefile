@@ -1,4 +1,4 @@
-.PHONY: build run tidy test image clean web
+.PHONY: build run tidy test image clean web fmt fmt-check vet
 
 BIN     ?= bin/bookshelf
 PKG     ?= ./cmd/bookshelf
@@ -20,6 +20,18 @@ tidy:
 
 test:
 	go test ./...
+
+fmt:
+	gofmt -w $$(find . -type f -name '*.go')
+
+fmt-check:
+	@test -z "$$(find . -type f -name '*.go' -print0 | xargs -0 gofmt -l)" || \
+		( echo "Go files need formatting:" && \
+		  find . -type f -name '*.go' -print0 | xargs -0 gofmt -l && \
+		  exit 1 )
+
+vet:
+	go vet ./...
 
 image:
 	docker build -t $(IMAGE) .
