@@ -128,6 +128,32 @@ func TestAddBookToCollectionAndLibraryReflects(t *testing.T) {
 	}
 }
 
+func TestScanCollectionsRejectMembershipChanges(t *testing.T) {
+	st, _, h, _ := newTestServer(t)
+	ctx := context.Background()
+	seedBook(t, st, "Fiction/Dune.pdf")
+
+	scanColl, err := st.UpsertScanCollection(ctx, "Fiction", "Fiction", nil)
+	if err != nil {
+		t.Fatalf("upsert scan: %v", err)
+	}
+
+	rec := do(t, h, http.MethodPost, "/api/collections/"+itoa(scanColl.ID)+"/books",
+		map[string]any{"path": "Fiction/Dune.pdf"})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for add-to-scan, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	if err := st.AddBookToCollection(ctx, "Fiction/Dune.pdf", scanColl.ID); err != nil {
+		t.Fatalf("seed scan link: %v", err)
+	}
+
+	rec = do(t, h, http.MethodDelete, "/api/collections/"+itoa(scanColl.ID)+"/books/Fiction/Dune.pdf", nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for remove-from-scan, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestPutBookStatus(t *testing.T) {
 	st, _, h, _ := newTestServer(t)
 	seedBook(t, st, "Fiction/Dune.pdf")
@@ -258,5 +284,45 @@ func TestScannerBuildsCollections(t *testing.T) {
 	}
 	if got := links["A/B/y.pdf"]; len(got) != 1 || got[0] != b.ID {
 		t.Fatalf("expected y.pdf in A/B, got %v", got)
+	}
+}
+
+func TestScannerReconcilesFlatScanLinksToImmediateParent(t *testing.T) {
+	ctx := context.Background()
+	st, sc, _, libDir := newTestServer(t)
+
+	full := filepath.Join(libDir, "A", "B", "y.pdf")
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(full, []byte("%PDF-1.4 fake"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	a, err := st.UpsertScanCollection(ctx, "A", "A", nil)
+	if err != nil {
+		t.Fatalf("upsert A: %v", err)
+	}
+	aID := a.ID
+	b, err := st.UpsertScanCollection(ctx, "A/B", "B", &aID)
+	if err != nil {
+		t.Fatalf("upsert A/B: %v", err)
+	}
+
+	seedBook(t, st, "A/B/y.pdf")
+	if err := st.AddBookToCollection(ctx, "A/B/y.pdf", a.ID); err != nil {
+		t.Fatalf("seed flat link: %v", err)
+	}
+
+	if _, err := sc.Run(ctx, libDir); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	links, err := st.BookCollectionIDs(ctx)
+	if err != nil {
+		t.Fatalf("links: %v", err)
+	}
+	if got := links["A/B/y.pdf"]; len(got) != 1 || got[0] != b.ID {
+		t.Fatalf("expected y.pdf to be linked only to A/B after rescan, got %v", got)
 	}
 }

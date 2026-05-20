@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,8 @@ import (
 
 	"bookshelf/internal/store"
 )
+
+var errScanCollectionMembershipReadOnly = errors.New("scan collection membership is read-only")
 
 func (s *Server) listCollections(w http.ResponseWriter, r *http.Request) {
 	cs, err := s.store.ListCollections(r.Context())
@@ -45,6 +48,17 @@ func (s *Server) createCollection(w http.ResponseWriter, r *http.Request) {
 
 func parseCollectionID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+}
+
+func (s *Server) ensureManualCollectionForMembership(ctx context.Context, id int64) error {
+	c, err := s.store.GetCollection(ctx, id)
+	if err != nil {
+		return err
+	}
+	if c.Source == "scan" {
+		return errScanCollectionMembershipReadOnly
+	}
+	return nil
 }
 
 func (s *Server) patchCollection(w http.ResponseWriter, r *http.Request) {
@@ -126,6 +140,18 @@ func (s *Server) addBookToCollection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, codeBadRequest, "invalid collection id")
 		return
 	}
+	if err := s.ensureManualCollectionForMembership(r.Context(), id); err != nil {
+		if errors.Is(err, errScanCollectionMembershipReadOnly) {
+			writeError(w, http.StatusConflict, codeConflict, err.Error())
+			return
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, codeNotFound, "book or collection not found")
+			return
+		}
+		s.internal(w, r, "get collection", err)
+		return
+	}
 	var req AddBookToCollectionReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, codeBadRequest, "invalid JSON: "+err.Error())
@@ -150,6 +176,18 @@ func (s *Server) removeBookFromCollection(w http.ResponseWriter, r *http.Request
 	id, err := parseCollectionID(r)
 	if err != nil || id <= 0 {
 		writeError(w, http.StatusBadRequest, codeBadRequest, "invalid collection id")
+		return
+	}
+	if err := s.ensureManualCollectionForMembership(r.Context(), id); err != nil {
+		if errors.Is(err, errScanCollectionMembershipReadOnly) {
+			writeError(w, http.StatusConflict, codeConflict, err.Error())
+			return
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, codeNotFound, "link not found")
+			return
+		}
+		s.internal(w, r, "get collection", err)
 		return
 	}
 	bookPath := chi.URLParam(r, "*")

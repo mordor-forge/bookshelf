@@ -139,3 +139,25 @@ func TestUploadBookWithCollectionIDs(t *testing.T) {
 		t.Fatalf("expected collection %d in %+v", c.ID, dto.CollectionIDs)
 	}
 }
+
+func TestUploadBookRejectsScanCollectionIDs(t *testing.T) {
+	st, _, h, libDir := newTestServer(t)
+	ctx := context.Background()
+	scanColl, err := st.UpsertScanCollection(ctx, "Fiction", "Fiction", nil)
+	if err != nil {
+		t.Fatalf("upsert scan: %v", err)
+	}
+
+	body, ct := buildUpload(t, "Linked.pdf", []byte("%PDF-1.4 content"), []string{itoa(scanColl.ID)})
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", body)
+	req.Header.Set("Content-Type", ct)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(libDir, "Linked.pdf")); !os.IsNotExist(err) {
+		t.Fatalf("expected upload to be rejected before writing file, stat err=%v", err)
+	}
+}

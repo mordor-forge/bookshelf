@@ -220,6 +220,32 @@ func (s *Store) AddBookToCollection(ctx context.Context, bookPath string, collec
 	return err
 }
 
+// SyncScanCollectionForBook reconciles scan-derived collection links for a book.
+// Manual collection memberships are preserved. If collectionID is nil, all scan
+// collection links for the book are removed.
+func (s *Store) SyncScanCollectionForBook(ctx context.Context, bookPath string, collectionID *int64) error {
+	if collectionID == nil {
+		_, err := s.db.ExecContext(ctx, `
+			DELETE FROM book_collections
+			 WHERE book_path = ?
+			   AND collection_id IN (
+			     SELECT id FROM collections WHERE source = 'scan'
+			   )`, bookPath)
+		return err
+	}
+
+	if _, err := s.db.ExecContext(ctx, `
+		DELETE FROM book_collections
+		 WHERE book_path = ?
+		   AND collection_id IN (
+		     SELECT id FROM collections WHERE source = 'scan' AND id != ?
+		   )`, bookPath, *collectionID); err != nil {
+		return err
+	}
+
+	return s.AddBookToCollection(ctx, bookPath, *collectionID)
+}
+
 // RemoveBookFromCollection unlinks a book from a collection. Returns sql.ErrNoRows
 // if the link did not exist.
 func (s *Store) RemoveBookFromCollection(ctx context.Context, bookPath string, collectionID int64) error {
