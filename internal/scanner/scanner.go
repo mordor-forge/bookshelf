@@ -135,15 +135,18 @@ func (s *Scanner) scan(ctx context.Context, libraryDir string) Result {
 			var parentID *int64
 			if i := strings.LastIndexByte(relSlash, '/'); i > 0 {
 				parentSlash := relSlash[:i]
-				if pid, ok := collIDs[parentSlash]; ok {
-					id := pid
-					parentID = &id
+				pid, ok := collIDs[parentSlash]
+				if !ok {
+					res.Errors = append(res.Errors, fmt.Sprintf("missing parent collection for %s (parent %s)", relSlash, parentSlash))
+					return fs.SkipDir
 				}
+				id := pid
+				parentID = &id
 			}
 			c, err := s.store.UpsertScanCollection(ctx, relSlash, d.Name(), parentID)
 			if err != nil {
 				res.Errors = append(res.Errors, fmt.Sprintf("collection %s: %v", relSlash, err))
-				return nil
+				return fs.SkipDir
 			}
 			collIDs[relSlash] = c.ID
 			return nil

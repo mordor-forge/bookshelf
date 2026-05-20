@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"bookshelf/internal/library"
+	"github.com/jmoiron/sqlx"
 )
 
 // ErrInvalidCollection signals client-side validation errors for collection operations.
@@ -199,22 +200,26 @@ func (s *Store) UpsertScanCollection(ctx context.Context, folderPath, name strin
 // AddBookToCollection links a book to a collection. Idempotent: re-linking is a no-op.
 // Returns sql.ErrNoRows if either the book or the collection is missing.
 func (s *Store) AddBookToCollection(ctx context.Context, bookPath string, collectionID int64) error {
+	return s.addBookToCollectionExec(ctx, s.db, bookPath, collectionID)
+}
+
+func (s *Store) addBookToCollectionExec(ctx context.Context, exec sqlx.ExtContext, bookPath string, collectionID int64) error {
 	var n int
-	if err := s.db.GetContext(ctx, &n,
+	if err := sqlx.GetContext(ctx, exec, &n,
 		`SELECT COUNT(1) FROM books WHERE path = ? AND removed_at IS NULL`, bookPath); err != nil {
 		return err
 	}
 	if n == 0 {
 		return sql.ErrNoRows
 	}
-	if err := s.db.GetContext(ctx, &n,
+	if err := sqlx.GetContext(ctx, exec, &n,
 		`SELECT COUNT(1) FROM collections WHERE id = ?`, collectionID); err != nil {
 		return err
 	}
 	if n == 0 {
 		return sql.ErrNoRows
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := exec.ExecContext(ctx, `
 		INSERT INTO book_collections (book_path, collection_id) VALUES (?, ?)
 		ON CONFLICT DO NOTHING`, bookPath, collectionID)
 	return err
@@ -224,17 +229,25 @@ func (s *Store) AddBookToCollection(ctx context.Context, bookPath string, collec
 // Manual collection memberships are preserved. If collectionID is nil, all scan
 // collection links for the book are removed.
 func (s *Store) SyncScanCollectionForBook(ctx context.Context, bookPath string, collectionID *int64) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	if collectionID == nil {
-		_, err := s.db.ExecContext(ctx, `
+		if _, err := tx.ExecContext(ctx, `
 			DELETE FROM book_collections
 			 WHERE book_path = ?
 			   AND collection_id IN (
 			     SELECT id FROM collections WHERE source = 'scan'
-			   )`, bookPath)
-		return err
+			   )`, bookPath); err != nil {
+			return err
+		}
+		return tx.Commit()
 	}
 
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM book_collections
 		 WHERE book_path = ?
 		   AND collection_id IN (
@@ -243,7 +256,11 @@ func (s *Store) SyncScanCollectionForBook(ctx context.Context, bookPath string, 
 		return err
 	}
 
-	return s.AddBookToCollection(ctx, bookPath, *collectionID)
+	if err := s.addBookToCollectionExec(ctx, tx, bookPath, *collectionID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // RemoveBookFromCollection unlinks a book from a collection. Returns sql.ErrNoRows
