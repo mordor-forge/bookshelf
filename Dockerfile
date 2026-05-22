@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.6
 
 # stage 1: frontend build
-FROM node:20-alpine AS web
+FROM node:26-alpine AS web
 WORKDIR /web
 COPY web/package*.json ./
 RUN npm ci
