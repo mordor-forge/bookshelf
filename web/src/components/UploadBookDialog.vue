@@ -47,8 +47,9 @@ watch(
 )
 
 const sortedCollections = computed(() =>
-  [...props.collections].sort((a, b) => {
-    if (a.source !== b.source) return a.source === 'manual' ? -1 : 1
+  [...props.collections]
+    .filter((c) => c.source === 'manual')
+    .sort((a, b) => {
     return a.name.localeCompare(b.name)
   }),
 )

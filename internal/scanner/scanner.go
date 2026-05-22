@@ -22,8 +22,8 @@ import (
 const fingerprintBytes = 64 * 1024
 
 var (
-	ErrAlreadyRunning  = errors.New("scan already in progress")
-	ErrNotConfigured   = errors.New("library not configured")
+	ErrAlreadyRunning = errors.New("scan already in progress")
+	ErrNotConfigured  = errors.New("library not configured")
 )
 
 type Result struct {
@@ -132,15 +132,21 @@ func (s *Scanner) scan(ctx context.Context, libraryDir string) Result {
 				return nil
 			}
 			relSlash := filepath.ToSlash(rel)
-			// only create collections for top-level directories; nested dirs
-			// are still walked for PDFs but don't become their own collections.
-			if strings.IndexByte(relSlash, '/') >= 0 {
-				return nil
+			var parentID *int64
+			if i := strings.LastIndexByte(relSlash, '/'); i > 0 {
+				parentSlash := relSlash[:i]
+				pid, ok := collIDs[parentSlash]
+				if !ok {
+					res.Errors = append(res.Errors, fmt.Sprintf("missing parent collection for %s (parent %s)", relSlash, parentSlash))
+					return fs.SkipDir
+				}
+				id := pid
+				parentID = &id
 			}
-			c, err := s.store.UpsertScanCollection(ctx, relSlash, d.Name(), nil)
+			c, err := s.store.UpsertScanCollection(ctx, relSlash, d.Name(), parentID)
 			if err != nil {
 				res.Errors = append(res.Errors, fmt.Sprintf("collection %s: %v", relSlash, err))
-				return nil
+				return fs.SkipDir
 			}
 			collIDs[relSlash] = c.ID
 			return nil
@@ -182,14 +188,18 @@ func (s *Scanner) scan(ctx context.Context, libraryDir string) Result {
 		} else {
 			res.Updated++
 		}
-		// link the book to its top-level directory's collection, if any.
-		if i := strings.IndexByte(relSlash, '/'); i > 0 {
-			topSlash := relSlash[:i]
-			if cid, ok := collIDs[topSlash]; ok {
-				if err := s.store.AddBookToCollection(ctx, relSlash, cid); err != nil {
-					res.Errors = append(res.Errors, fmt.Sprintf("link %s: %v", relSlash, err))
-				}
+		// reconcile scan-derived links so the book belongs to exactly its
+		// immediate parent scan collection, while preserving any manual links.
+		var parentID *int64
+		if i := strings.LastIndexByte(relSlash, '/'); i > 0 {
+			parentSlash := relSlash[:i]
+			if cid, ok := collIDs[parentSlash]; ok {
+				id := cid
+				parentID = &id
 			}
+		}
+		if err := s.store.SyncScanCollectionForBook(ctx, relSlash, parentID); err != nil {
+			res.Errors = append(res.Errors, fmt.Sprintf("link %s: %v", relSlash, err))
 		}
 		seen[relSlash] = struct{}{}
 		return ctx.Err()

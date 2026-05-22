@@ -1,0 +1,11 @@
+reviews:
+  auto_review:
+    enabled: true
+    drafts: false
+    labels:
+      - "!wip"
+      - "!do-not-review"
+    ignore_usernames:
+      - "dependabot[bot]"
+  path_filters:
+    - "!internal/web/dist/**"

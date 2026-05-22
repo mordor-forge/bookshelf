@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -17,8 +18,8 @@ import (
 )
 
 const (
-	maxUploadBytes          = 200 << 20
-	uploadFingerprintBytes  = 64 * 1024
+	maxUploadBytes         = 200 << 20
+	uploadFingerprintBytes = 64 * 1024
 )
 
 // uploadBook handles POST /api/upload — a multipart form with a `file` PDF blob
@@ -61,6 +62,32 @@ func (s *Server) uploadBook(w http.ResponseWriter, r *http.Request) {
 	if !strings.EqualFold(filepath.Ext(origName), ".pdf") {
 		writeError(w, http.StatusBadRequest, codeBadRequest, "only PDF files are accepted")
 		return
+	}
+
+	collectionIDs := make([]int64, 0, len(r.Form["collectionIds"]))
+	for _, idStr := range r.Form["collectionIds"] {
+		for _, part := range strings.Split(idStr, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			id, perr := strconv.ParseInt(part, 10, 64)
+			if perr != nil || id <= 0 {
+				continue
+			}
+			if err := s.ensureManualCollectionForMembership(ctx, id); err != nil {
+				if errors.Is(err, errScanCollectionMembershipReadOnly) {
+					writeError(w, http.StatusConflict, codeConflict, err.Error())
+					return
+				}
+				if !errors.Is(err, sql.ErrNoRows) {
+					s.internal(w, r, "get upload collection", err)
+					return
+				}
+				continue
+			}
+			collectionIDs = append(collectionIDs, id)
+		}
 	}
 
 	libAbs, err := filepath.Abs(libDir)
@@ -117,19 +144,9 @@ func (s *Server) uploadBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, idStr := range r.Form["collectionIds"] {
-		for _, part := range strings.Split(idStr, ",") {
-			part = strings.TrimSpace(part)
-			if part == "" {
-				continue
-			}
-			id, perr := strconv.ParseInt(part, 10, 64)
-			if perr != nil || id <= 0 {
-				continue
-			}
-			if err := s.store.AddBookToCollection(ctx, origName, id); err != nil {
-				s.log.Warn("link upload to collection", "id", id, "err", err)
-			}
+	for _, id := range collectionIDs {
+		if err := s.store.AddBookToCollection(ctx, origName, id); err != nil {
+			s.log.Warn("link upload to collection", "id", id, "err", err)
 		}
 	}
 
