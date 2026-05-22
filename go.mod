@@ -3,8 +3,8 @@ module bookshelf
 go 1.25
 
 require (
-	github.com/go-chi/chi/v5 v5.0.12
-	github.com/jmoiron/sqlx v1.3.5
+	github.com/go-chi/chi/v5 v5.2.5
+	github.com/jmoiron/sqlx v1.4.0
 	modernc.org/sqlite v1.29.0
 )
 
