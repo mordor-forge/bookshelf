@@ -14,7 +14,7 @@ A self-hosted PDF library and reader.
 
 ## Quick start (dev)
 
-Prerequisites: Go 1.22+, Node 20+.
+Prerequisites: Go 1.25+, Node 20+.
 
 ```
 cd web && npm install
