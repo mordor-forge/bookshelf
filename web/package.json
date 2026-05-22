@@ -23,7 +23,7 @@
     "vue-sonner": "^2.0.9"
   },
   "devDependencies": {
-    "@types/node": "^20.19.41",
+    "@types/node": "^25.9.1",
     "@vitejs/plugin-vue": "^5.0.4",
     "autoprefixer": "^10.5.0",
     "postcss": "^8.5.14",
