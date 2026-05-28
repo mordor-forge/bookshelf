@@ -3,6 +3,7 @@
 *.db-shm
 *.db-wal
 /web/node_modules/
+.npm/
 .env
 /.dev/
 .claude/
@@ -10,5 +11,10 @@
 .vscode/
 .DS_Store
 *.tsbuildinfo
+*.out
+*.swp
+*.swo
+/coverage/
+/dist/
 /web/vite.config.js
 /web/vite.config.d.ts
